@@ -1,8 +1,8 @@
 from fastapi import FastAPI, UploadFile, File
 from datetime import datetime
 import os
-from deepface import DeepFace
 import shutil
+from deepface import DeepFace
 
 app = FastAPI()
 
@@ -12,21 +12,24 @@ TEMP_DIR = "temp"
 os.makedirs(KNOWN_FACES_DIR, exist_ok=True)
 os.makedirs(TEMP_DIR, exist_ok=True)
 
+# 🧠 In-memory storage (for now)
+attendance_log = []
+
 @app.get("/")
 def home():
-    return {"msg": "API running with face recognition"}
+    return {"msg": "API running with attendance"}
 
-# ✅ Register a face
+# ✅ Register employee
 @app.post("/register")
-async def register(name: str, file: UploadFile = File(...)):
-    path = f"{KNOWN_FACES_DIR}/{name}.jpg"
+async def register(employee_id: str, file: UploadFile = File(...)):
+    path = f"{KNOWN_FACES_DIR}/{employee_id}.jpg"
 
     with open(path, "wb") as buffer:
         shutil.copyfileobj(file.file, buffer)
 
-    return {"status": f"{name} registered"}
+    return {"status": f"{employee_id} registered"}
 
-# ✅ Clock (recognize face)
+# ✅ Clock in/out
 @app.post("/clock")
 async def clock(file: UploadFile = File(...)):
     temp_path = f"{TEMP_DIR}/{file.filename}"
@@ -41,15 +44,42 @@ async def clock(file: UploadFile = File(...)):
             result = DeepFace.verify(temp_path, known_path)
 
             if result["verified"]:
-                name = face.split(".")[0]
+                employee_id = face.split(".")[0]
+                now = datetime.now()
+
+                # 🔥 Prevent duplicate clock-ins (within 5 min)
+                for record in attendance_log:
+                    if record["employee_id"] == employee_id:
+                        last_time = datetime.fromisoformat(record["time"])
+                        diff = (now - last_time).seconds
+
+                        if diff < 300:
+                            return {
+                                "status": "duplicate",
+                                "message": "Already clocked recently"
+                            }
+
+                # ✅ Save attendance
+                entry = {
+                    "employee_id": employee_id,
+                    "time": now.isoformat(),
+                    "status": "clocked"
+                }
+
+                attendance_log.append(entry)
 
                 return {
                     "status": "success",
-                    "person": name,
-                    "time": str(datetime.now())
+                    "employee_id": employee_id,
+                    "time": entry["time"]
                 }
 
         except:
             continue
 
     return {"status": "unknown"}
+
+# ✅ View attendance
+@app.get("/attendance")
+def get_attendance():
+    return attendance_log
