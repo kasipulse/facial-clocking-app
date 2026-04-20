@@ -42,12 +42,21 @@ app = FastAPI()
 PERSON_GROUP_ID = "employees"
 
 # -----------------------
+# 🧠 BRANDING (GLOBAL)
+# -----------------------
+
+BRANDED_BY = "Built by Mpho Mahlaba"
+
+# -----------------------
 # ❤️ HEALTH CHECK (Render fix)
 # -----------------------
 
 @app.get("/")
 def health():
-    return {"status": "running"}
+    return {
+        "status": "running",
+        "built_by": BRANDED_BY
+    }
 
 # -----------------------
 # 🧱 CREATE GROUP (run once)
@@ -65,9 +74,12 @@ def create_group():
 
     try:
         r = requests.put(url, headers=headers, json=body, timeout=REQUEST_TIMEOUT)
-        return r.json()
+        return {
+            "response": r.json(),
+            "built_by": BRANDED_BY
+        }
     except Exception as e:
-        return {"error": str(e)}
+        return {"error": str(e), "built_by": BRANDED_BY}
 
 # -----------------------
 # 👤 REGISTER EMPLOYEE
@@ -89,7 +101,7 @@ async def register(name: str = Form(...), file: UploadFile = File(...)):
         ).json()
 
         if "personId" not in person_res:
-            return {"error": person_res}
+            return {"error": person_res, "built_by": BRANDED_BY}
 
         person_id = person_res["personId"]
 
@@ -118,11 +130,12 @@ async def register(name: str = Form(...), file: UploadFile = File(...)):
 
         return {
             "message": "Employee registered ✅",
-            "person_id": person_id
+            "person_id": person_id,
+            "built_by": BRANDED_BY
         }
 
     except Exception as e:
-        return {"error": str(e)}
+        return {"error": str(e), "built_by": BRANDED_BY}
 
 # -----------------------
 # 🕒 IDENTIFY + CLOCK IN/OUT
@@ -149,12 +162,12 @@ async def identify(file: UploadFile = File(...)):
         detect = detect_res.json()
 
         if not isinstance(detect, list) or len(detect) == 0:
-            return {"status": "No face detected ❌"}
+            return {"status": "No face detected ❌", "built_by": BRANDED_BY}
 
         face_id = detect[0].get("faceId")
 
         if not face_id:
-            return {"status": "Face detection failed ❌"}
+            return {"status": "Face detection failed ❌", "built_by": BRANDED_BY}
 
         # Identify person
         identify_res = requests.post(
@@ -170,12 +183,12 @@ async def identify(file: UploadFile = File(...)):
         identify_json = identify_res.json()
 
         if not isinstance(identify_json, list) or len(identify_json) == 0:
-            return {"status": "Identification failed ❌"}
+            return {"status": "Identification failed ❌", "built_by": BRANDED_BY}
 
         result = identify_json[0]
 
         if "candidates" not in result or len(result["candidates"]) == 0:
-            return {"status": "Not recognized ❌"}
+            return {"status": "Not recognized ❌", "built_by": BRANDED_BY}
 
         person_id = result["candidates"][0]["personId"]
 
@@ -216,11 +229,12 @@ async def identify(file: UploadFile = File(...)):
 
         return {
             "message": f"{name} clocked {status} ✅",
-            "person_id": person_id
+            "person_id": person_id,
+            "built_by": BRANDED_BY
         }
 
     except Exception as e:
-        return {"error": str(e)}
+        return {"error": str(e), "built_by": BRANDED_BY}
 
 # -----------------------
 # 📊 DASHBOARD API
@@ -232,4 +246,7 @@ def get_attendance():
         .order_by("timestamp", direction=firestore.Query.DESCENDING)\
         .stream()
 
-    return [r.to_dict() for r in records]
+    return {
+        "data": [r.to_dict() for r in records],
+        "built_by": BRANDED_BY
+    }
