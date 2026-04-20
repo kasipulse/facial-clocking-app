@@ -3,4 +3,4 @@ wheel
 fastapi
 uvicorn
 python-multipart
-face-recognition
+requests
