@@ -13,6 +13,8 @@ AZURE_KEY = os.getenv("AZURE_FACE_KEY")
 AZURE_ENDPOINT = os.getenv("AZURE_FACE_ENDPOINT")
 FIREBASE_KEY = os.getenv("FIREBASE_KEY")
 
+REQUEST_TIMEOUT = 10
+
 if not AZURE_KEY or not AZURE_ENDPOINT:
     raise ValueError("Missing Azure credentials")
 
@@ -25,7 +27,10 @@ if not FIREBASE_KEY:
 
 firebase_json = json.loads(FIREBASE_KEY)
 cred = credentials.Certificate(firebase_json)
-firebase_admin.initialize_app(cred)
+
+if not firebase_admin._apps:
+    firebase_admin.initialize_app(cred)
+
 db = firestore.client()
 
 # -----------------------
@@ -35,6 +40,14 @@ db = firestore.client()
 app = FastAPI()
 
 PERSON_GROUP_ID = "employees"
+
+# -----------------------
+# ❤️ HEALTH CHECK (Render fix)
+# -----------------------
+
+@app.get("/")
+def health():
+    return {"status": "running"}
 
 # -----------------------
 # 🧱 CREATE GROUP (run once)
@@ -50,9 +63,11 @@ def create_group():
 
     body = {"name": "Employees"}
 
-    r = requests.put(url, headers=headers, json=body)
-    return r.json()
-
+    try:
+        r = requests.put(url, headers=headers, json=body, timeout=REQUEST_TIMEOUT)
+        return r.json()
+    except Exception as e:
+        return {"error": str(e)}
 
 # -----------------------
 # 👤 REGISTER EMPLOYEE
@@ -64,43 +79,50 @@ async def register(name: str = Form(...), file: UploadFile = File(...)):
         "Ocp-Apim-Subscription-Key": AZURE_KEY
     }
 
-    # Create person
-    person_res = requests.post(
-        f"{AZURE_ENDPOINT}/face/v1.0/persongroups/{PERSON_GROUP_ID}/persons",
-        headers=headers,
-        json={"name": name}
-    ).json()
+    try:
+        # Create person
+        person_res = requests.post(
+            f"{AZURE_ENDPOINT}/face/v1.0/persongroups/{PERSON_GROUP_ID}/persons",
+            headers=headers,
+            json={"name": name},
+            timeout=REQUEST_TIMEOUT
+        ).json()
 
-    if "personId" not in person_res:
-        return {"error": person_res}
+        if "personId" not in person_res:
+            return {"error": person_res}
 
-    person_id = person_res["personId"]
+        person_id = person_res["personId"]
 
-    # Add face
-    image = await file.read()
-    add_face = requests.post(
-        f"{AZURE_ENDPOINT}/face/v1.0/persongroups/{PERSON_GROUP_ID}/persons/{person_id}/persistedFaces",
-        headers={**headers, "Content-Type": "application/octet-stream"},
-        data=image
-    ).json()
+        # Add face
+        image = await file.read()
 
-    # Train model
-    requests.post(
-        f"{AZURE_ENDPOINT}/face/v1.0/persongroups/{PERSON_GROUP_ID}/train",
-        headers=headers
-    )
+        requests.post(
+            f"{AZURE_ENDPOINT}/face/v1.0/persongroups/{PERSON_GROUP_ID}/persons/{person_id}/persistedFaces",
+            headers={**headers, "Content-Type": "application/octet-stream"},
+            data=image,
+            timeout=REQUEST_TIMEOUT
+        )
 
-    # Save to Firebase
-    db.collection("employees").add({
-        "name": name,
-        "person_id": person_id
-    })
+        # Train model
+        requests.post(
+            f"{AZURE_ENDPOINT}/face/v1.0/persongroups/{PERSON_GROUP_ID}/train",
+            headers=headers,
+            timeout=REQUEST_TIMEOUT
+        )
 
-    return {
-        "message": "Employee registered ✅",
-        "person_id": person_id
-    }
+        # Save to Firebase
+        db.collection("employees").add({
+            "name": name,
+            "person_id": person_id
+        })
 
+        return {
+            "message": "Employee registered ✅",
+            "person_id": person_id
+        }
+
+    except Exception as e:
+        return {"error": str(e)}
 
 # -----------------------
 # 🕒 IDENTIFY + CLOCK IN/OUT
@@ -112,77 +134,96 @@ async def identify(file: UploadFile = File(...)):
         "Ocp-Apim-Subscription-Key": AZURE_KEY
     }
 
-    image = await file.read()
+    try:
+        image = await file.read()
 
-    # Detect face
-    detect = requests.post(
-        f"{AZURE_ENDPOINT}/face/v1.0/detect",
-        headers={**headers, "Content-Type": "application/octet-stream"},
-        params={"returnFaceId": "true"},
-        data=image
-    ).json()
+        # Detect face
+        detect_res = requests.post(
+            f"{AZURE_ENDPOINT}/face/v1.0/detect",
+            headers={**headers, "Content-Type": "application/octet-stream"},
+            params={"returnFaceId": "true"},
+            data=image,
+            timeout=REQUEST_TIMEOUT
+        )
 
-    if not detect:
-        return {"status": "No face detected ❌"}
+        detect = detect_res.json()
 
-    face_id = detect[0]["faceId"]
+        if not isinstance(detect, list) or len(detect) == 0:
+            return {"status": "No face detected ❌"}
 
-    # Identify person
-    identify_res = requests.post(
-        f"{AZURE_ENDPOINT}/face/v1.0/identify",
-        headers=headers,
-        json={
-            "personGroupId": PERSON_GROUP_ID,
-            "faceIds": [face_id]
+        face_id = detect[0].get("faceId")
+
+        if not face_id:
+            return {"status": "Face detection failed ❌"}
+
+        # Identify person
+        identify_res = requests.post(
+            f"{AZURE_ENDPOINT}/face/v1.0/identify",
+            headers=headers,
+            json={
+                "personGroupId": PERSON_GROUP_ID,
+                "faceIds": [face_id]
+            },
+            timeout=REQUEST_TIMEOUT
+        )
+
+        identify_json = identify_res.json()
+
+        if not isinstance(identify_json, list) or len(identify_json) == 0:
+            return {"status": "Identification failed ❌"}
+
+        result = identify_json[0]
+
+        if "candidates" not in result or len(result["candidates"]) == 0:
+            return {"status": "Not recognized ❌"}
+
+        person_id = result["candidates"][0]["personId"]
+
+        # Get employee
+        employees = db.collection("employees")\
+            .where("person_id", "==", person_id)\
+            .limit(1)\
+            .stream()
+
+        employee_list = list(employees)
+
+        if not employee_list:
+            name = "Unknown"
+        else:
+            name = employee_list[0].to_dict().get("name", "Unknown")
+
+        # Get last attendance
+        records = db.collection("attendance")\
+            .where("person_id", "==", person_id)\
+            .order_by("timestamp", direction=firestore.Query.DESCENDING)\
+            .limit(1)\
+            .stream()
+
+        last = list(records)
+
+        if last and last[0].to_dict().get("status") == "IN":
+            status = "OUT"
+        else:
+            status = "IN"
+
+        # Save attendance
+        db.collection("attendance").add({
+            "person_id": person_id,
+            "name": name,
+            "status": status,
+            "timestamp": firestore.SERVER_TIMESTAMP
+        })
+
+        return {
+            "message": f"{name} clocked {status} ✅",
+            "person_id": person_id
         }
-    ).json()
 
-    result = identify_res[0]
-
-    if not result["candidates"]:
-        return {"status": "Not recognized ❌"}
-
-    person_id = result["candidates"][0]["personId"]
-
-    # Get employee name
-    employees = db.collection("employees")\
-        .where("person_id", "==", person_id)\
-        .limit(1)\
-        .stream()
-
-    employee = list(employees)
-    name = employee[0].to_dict()["name"] if employee else "Unknown"
-
-    # Toggle IN / OUT
-    records = db.collection("attendance")\
-        .where("person_id", "==", person_id)\
-        .order_by("timestamp", direction=firestore.Query.DESCENDING)\
-        .limit(1)\
-        .stream()
-
-    last = list(records)
-
-    if last and last[0].to_dict()["status"] == "IN":
-        status = "OUT"
-    else:
-        status = "IN"
-
-    # Save attendance
-    db.collection("attendance").add({
-        "person_id": person_id,
-        "name": name,
-        "status": status,
-        "timestamp": firestore.SERVER_TIMESTAMP
-    })
-
-    return {
-        "message": f"{name} clocked {status} ✅",
-        "person_id": person_id
-    }
-
+    except Exception as e:
+        return {"error": str(e)}
 
 # -----------------------
-# 📊 SIMPLE DASHBOARD API
+# 📊 DASHBOARD API
 # -----------------------
 
 @app.get("/attendance/")
@@ -191,6 +232,4 @@ def get_attendance():
         .order_by("timestamp", direction=firestore.Query.DESCENDING)\
         .stream()
 
-    data = [r.to_dict() for r in records]
-
-    return data
+    return [r.to_dict() for r in records]
