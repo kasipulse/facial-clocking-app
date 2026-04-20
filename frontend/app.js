@@ -3,17 +3,33 @@ const canvas = document.getElementById("canvas");
 const result = document.getElementById("result");
 const button = document.getElementById("capture");
 
-// Start camera
+// -----------------------
+// 🌐 BACKEND URL (UPDATE HERE IF NEEDED)
+// -----------------------
+
+const API_URL = "https://facial-clocking-app.onrender.com";
+
+// -----------------------
+// 📷 START CAMERA
+// -----------------------
+
 navigator.mediaDevices.getUserMedia({ video: true })
 .then(stream => {
     video.srcObject = stream;
 })
 .catch(err => {
     console.log("Camera error:", err);
+    result.innerText = "Camera not allowed ❌";
 });
 
-// Capture + send
+// -----------------------
+// 📡 CAPTURE + SEND IMAGE
+// -----------------------
+
 button.onclick = async () => {
+
+    result.innerText = "Processing... ⏳";
+
     const context = canvas.getContext("2d");
 
     canvas.width = video.videoWidth;
@@ -22,23 +38,49 @@ button.onclick = async () => {
     context.drawImage(video, 0, 0);
 
     canvas.toBlob(async (blob) => {
+
+        if (!blob) {
+            result.innerText = "Capture failed ❌";
+            return;
+        }
+
         const formData = new FormData();
         formData.append("file", blob, "face.jpg");
 
-        result.innerText = "Processing...";
-
         try {
-            const response = await fetch("https://facial-clocking-app.onrender.com/identify/", {
+            const response = await fetch(`${API_URL}/identify/`, {
                 method: "POST",
                 body: formData
             });
 
+            if (!response.ok) {
+                result.innerText = "Server error ❌";
+                return;
+            }
+
             const data = await response.json();
 
-            result.innerText = data.message || data.status || "Error";
+            // -----------------------
+            // ⚡ SHOW RESULT
+            // -----------------------
+
+            if (data.message) {
+                result.innerText = "✅ " + data.message;
+                result.style.color = "lightgreen";
+            } 
+            else if (data.status) {
+                result.innerText = "❌ " + data.status;
+                result.style.color = "orange";
+            } 
+            else {
+                result.innerText = "Unknown response ❌";
+                result.style.color = "red";
+            }
+
         } catch (err) {
-            result.innerText = "Server error";
             console.log(err);
+            result.innerText = "Network error ❌";
+            result.style.color = "red";
         }
 
     }, "image/jpeg");
