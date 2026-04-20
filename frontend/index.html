@@ -1,20 +1,30 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-  <title>Facial Clocking</title>
-  <link rel="stylesheet" href="style.css">
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Facial Clocking</title>
+    <link rel="stylesheet" href="style.css">
 </head>
+
 <body>
 
-  <h1>Facial Clocking System</h1>
+<div class="container">
 
-  <video id="video" autoplay></video>
-  <button id="capture">Clock In / Out</button>
+    <h1>Face Clocking System</h1>
+    <p class="subtitle">Built by Mpho Mahlaba</p>
 
-  <canvas id="canvas" style="display:none;"></canvas>
+    <div class="camera-box">
+        <video id="video" autoplay playsinline></video>
+        <canvas id="canvas" hidden></canvas>
+    </div>
 
-  <h2 id="result">Waiting...</h2>
+    <button id="captureBtn">CLOCK IN / OUT</button>
 
-  <script src="app.js"></script>
+    <div id="status">Waiting for face...</div>
+
+</div>
+
+<script src="app.js"></script>
 </body>
 </html>
