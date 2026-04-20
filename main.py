@@ -1,85 +1,92 @@
 from fastapi import FastAPI, UploadFile, File
-from datetime import datetime
+import requests
 import os
-import shutil
-from deepface import DeepFace
 
 app = FastAPI()
 
-KNOWN_FACES_DIR = "faces"
-TEMP_DIR = "temp"
+AZURE_KEY = os.getenv("AZURE_FACE_KEY")
+AZURE_ENDPOINT = os.getenv("AZURE_FACE_ENDPOINT")
 
-os.makedirs(KNOWN_FACES_DIR, exist_ok=True)
-os.makedirs(TEMP_DIR, exist_ok=True)
+PERSON_GROUP_ID = "employees"
 
-# 🧠 In-memory storage (for now)
-attendance_log = []
 
-@app.get("/")
-def home():
-    return {"msg": "API running with attendance"}
+# Create person group (run once manually)
+@app.get("/create-group/")
+def create_group():
+    url = f"{AZURE_ENDPOINT}/face/v1.0/persongroups/{PERSON_GROUP_ID}"
+    
+    headers = {
+        "Ocp-Apim-Subscription-Key": AZURE_KEY
+    }
 
-# ✅ Register employee
-@app.post("/register")
-async def register(employee_id: str, file: UploadFile = File(...)):
-    path = f"{KNOWN_FACES_DIR}/{employee_id}.jpg"
+    body = {
+        "name": "Employees"
+    }
 
-    with open(path, "wb") as buffer:
-        shutil.copyfileobj(file.file, buffer)
+    r = requests.put(url, headers=headers, json=body)
+    return r.json()
 
-    return {"status": f"{employee_id} registered"}
 
-# ✅ Clock in/out
-@app.post("/clock")
-async def clock(file: UploadFile = File(...)):
-    temp_path = f"{TEMP_DIR}/{file.filename}"
+# Register employee
+@app.post("/register/")
+async def register(name: str, file: UploadFile = File(...)):
+    headers = {
+        "Ocp-Apim-Subscription-Key": AZURE_KEY
+    }
 
-    with open(temp_path, "wb") as buffer:
-        shutil.copyfileobj(file.file, buffer)
+    # Create person
+    person_res = requests.post(
+        f"{AZURE_ENDPOINT}/face/v1.0/persongroups/{PERSON_GROUP_ID}/persons",
+        headers=headers,
+        json={"name": name}
+    ).json()
 
-    for face in os.listdir(KNOWN_FACES_DIR):
-        known_path = f"{KNOWN_FACES_DIR}/{face}"
+    person_id = person_res["personId"]
 
-        try:
-            result = DeepFace.verify(temp_path, known_path)
+    # Add face
+    image = await file.read()
+    add_face = requests.post(
+        f"{AZURE_ENDPOINT}/face/v1.0/persongroups/{PERSON_GROUP_ID}/persons/{person_id}/persistedFaces",
+        headers={**headers, "Content-Type": "application/octet-stream"},
+        data=image
+    ).json()
 
-            if result["verified"]:
-                employee_id = face.split(".")[0]
-                now = datetime.now()
+    # Train
+    requests.post(
+        f"{AZURE_ENDPOINT}/face/v1.0/persongroups/{PERSON_GROUP_ID}/train",
+        headers=headers
+    )
 
-                # 🔥 Prevent duplicate clock-ins (within 5 min)
-                for record in attendance_log:
-                    if record["employee_id"] == employee_id:
-                        last_time = datetime.fromisoformat(record["time"])
-                        diff = (now - last_time).seconds
+    return {"person_id": person_id}
 
-                        if diff < 300:
-                            return {
-                                "status": "duplicate",
-                                "message": "Already clocked recently"
-                            }
 
-                # ✅ Save attendance
-                entry = {
-                    "employee_id": employee_id,
-                    "time": now.isoformat(),
-                    "status": "clocked"
-                }
+# Clock in (identify)
+@app.post("/identify/")
+async def identify(file: UploadFile = File(...)):
+    headers = {
+        "Ocp-Apim-Subscription-Key": AZURE_KEY
+    }
 
-                attendance_log.append(entry)
+    image = await file.read()
 
-                return {
-                    "status": "success",
-                    "employee_id": employee_id,
-                    "time": entry["time"]
-                }
+    # Detect face
+    detect = requests.post(
+        f"{AZURE_ENDPOINT}/face/v1.0/detect",
+        headers={**headers, "Content-Type": "application/octet-stream"},
+        params={"returnFaceId": "true"},
+        data=image
+    ).json()
 
-        except:
-            continue
+    face_id = detect[0]["faceId"]
 
-    return {"status": "unknown"}
+    # Identify
+    identify = requests.post(
+        f"{AZURE_ENDPOINT}/face/v1.0/identify",
+        headers=headers,
+        json={
+            "personGroupId": PERSON_GROUP_ID,
+            "faceIds": [face_id]
+        }
+    ).json()
 
-# ✅ View attendance
-@app.get("/attendance")
-def get_attendance():
-    return attendance_log
+    return identify
