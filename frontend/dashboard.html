@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Attendance Dashboard</title>
+    <style>
+        body { font-family: Arial; background:#111; color:white; padding:20px; }
+        table { width:100%; border-collapse: collapse; }
+        th, td { padding:10px; border-bottom:1px solid #333; }
+        th { color:#00c853; }
+    </style>
+</head>
+<body>
+
+<h2>Attendance Dashboard</h2>
+
+<table>
+    <thead>
+        <tr>
+            <th>Name</th>
+            <th>Status</th>
+            <th>Time</th>
+        </tr>
+    </thead>
+    <tbody id="table"></tbody>
+</table>
+
+<script>
+const API_URL = "https://facial-clocking-app.onrender.com";
+
+async function loadData() {
+    const res = await fetch(`${API_URL}/attendance/`);
+    const data = await res.json();
+
+    const table = document.getElementById("table");
+    table.innerHTML = "";
+
+    data.forEach(row => {
+        const time = row.timestamp ? new Date(row.timestamp).toLocaleString() : "";
+
+        table.innerHTML += `
+            <tr>
+                <td>${row.name}</td>
+                <td>${row.status}</td>
+                <td>${time}</td>
+            </tr>
+        `;
+    });
+}
+
+setInterval(loadData, 3000);
+loadData();
+</script>
+
+</body>
+</html>
