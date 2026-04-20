@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Attendance Dashboard</title>
+    <title>Dashboard</title>
     <style>
         body { font-family: Arial; background:#111; color:white; padding:20px; }
         table { width:100%; border-collapse: collapse; }
@@ -29,13 +29,18 @@ const API_URL = "https://facial-clocking-app.onrender.com";
 
 async function loadData() {
     const res = await fetch(`${API_URL}/attendance/`);
-    const data = await res.json();
+    const json = await res.json();
+
+    const data = json.data || [];
 
     const table = document.getElementById("table");
     table.innerHTML = "";
 
     data.forEach(row => {
-        const time = row.timestamp ? new Date(row.timestamp).toLocaleString() : "";
+
+        const time = row.timestamp
+            ? new Date(row.timestamp).toLocaleString()
+            : "";
 
         table.innerHTML += `
             <tr>
