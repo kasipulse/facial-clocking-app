@@ -11,7 +11,7 @@ let useFrontCamera = true;
 // -----------------------
 async function startCamera() {
     try {
-        // Stop previous stream if exists
+        // Stop old stream
         if (currentStream) {
             currentStream.getTracks().forEach(track => track.stop());
         }
@@ -31,7 +31,7 @@ async function startCamera() {
     }
 }
 
-// Start camera initially
+// Start camera on load
 startCamera();
 
 // -----------------------
@@ -42,7 +42,7 @@ function switchCamera() {
     startCamera();
 }
 
-// OPTIONAL: attach this to a button if you add one in HTML
+// OPTIONAL button in HTML:
 // <button onclick="switchCamera()">Switch Camera</button>
 
 // -----------------------
@@ -72,10 +72,23 @@ button.onclick = async () => {
 
             const data = await response.json();
 
-            statusText.innerText =
+            const message =
                 data.message ||
                 data.status ||
                 "No response from server";
+
+            statusText.innerText = message;
+
+            // ✅ SUCCESS FLOW
+            if (data.message && data.message.includes("clocked")) {
+
+                statusText.innerText = message + "\n\nThank you ✅";
+
+                // reset after delay
+                setTimeout(() => {
+                    statusText.innerText = "Waiting for next scan...";
+                }, 3000);
+            }
 
         } catch (err) {
             statusText.innerText = "Server error ❌";
