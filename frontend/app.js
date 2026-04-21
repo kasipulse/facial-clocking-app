@@ -1,26 +1,22 @@
 const video = document.getElementById("video");
 const canvas = document.getElementById("canvas");
-const result = document.getElementById("result");
+const statusText = document.getElementById("status");
+const button = document.getElementById("captureBtn");
 
-const API_URL = "https://facial-clocking-app.onrender.com";
-
-// -----------------------
-// 📷 START CAMERA
-// -----------------------
-
+// Start camera
 navigator.mediaDevices.getUserMedia({ video: true })
 .then(stream => {
     video.srcObject = stream;
 })
 .catch(err => {
-    result.innerText = "Camera error ❌";
+    statusText.innerText = "Camera error ❌";
+    console.log(err);
 });
 
-// -----------------------
-// ⚡ AUTO CLOCK FUNCTION
-// -----------------------
+// Capture + send
+button.onclick = async () => {
 
-async function sendFrame() {
+    statusText.innerText = "Processing...";
 
     const context = canvas.getContext("2d");
 
@@ -31,36 +27,26 @@ async function sendFrame() {
 
     canvas.toBlob(async (blob) => {
 
-        if (!blob) return;
-
         const formData = new FormData();
         formData.append("file", blob, "face.jpg");
 
         try {
-            const res = await fetch(`${API_URL}/identify/`, {
+            const response = await fetch("/identify/", {
                 method: "POST",
                 body: formData
             });
 
-            const data = await res.json();
+            const data = await response.json();
 
-            if (data.message) {
-                result.innerText = "✅ " + data.message;
-                result.style.color = "lightgreen";
-            } else {
-                result.innerText = data.status || "Scanning...";
-                result.style.color = "orange";
-            }
+            statusText.innerText =
+                data.message ||
+                data.status ||
+                "No response from server";
 
         } catch (err) {
-            result.innerText = "Server error ❌";
+            statusText.innerText = "Server error ❌";
+            console.log(err);
         }
 
     }, "image/jpeg");
-}
-
-// -----------------------
-// 🔁 RUN EVERY 5 SECONDS
-// -----------------------
-
-setInterval(sendFrame, 5000);
+};
