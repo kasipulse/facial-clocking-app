@@ -3,17 +3,51 @@ const canvas = document.getElementById("canvas");
 const statusText = document.getElementById("status");
 const button = document.getElementById("captureBtn");
 
-// Start camera
-navigator.mediaDevices.getUserMedia({ video: true })
-.then(stream => {
-    video.srcObject = stream;
-})
-.catch(err => {
-    statusText.innerText = "Camera error ❌";
-    console.log(err);
-});
+let currentStream = null;
+let useFrontCamera = true;
 
-// Capture + send
+// -----------------------
+// 🎥 START CAMERA
+// -----------------------
+async function startCamera() {
+    try {
+        // Stop previous stream if exists
+        if (currentStream) {
+            currentStream.getTracks().forEach(track => track.stop());
+        }
+
+        const stream = await navigator.mediaDevices.getUserMedia({
+            video: {
+                facingMode: useFrontCamera ? "user" : "environment"
+            }
+        });
+
+        video.srcObject = stream;
+        currentStream = stream;
+
+    } catch (err) {
+        statusText.innerText = "Camera error ❌";
+        console.log(err);
+    }
+}
+
+// Start camera initially
+startCamera();
+
+// -----------------------
+// 🔄 SWITCH CAMERA
+// -----------------------
+function switchCamera() {
+    useFrontCamera = !useFrontCamera;
+    startCamera();
+}
+
+// OPTIONAL: attach this to a button if you add one in HTML
+// <button onclick="switchCamera()">Switch Camera</button>
+
+// -----------------------
+// 📸 CAPTURE + SEND
+// -----------------------
 button.onclick = async () => {
 
     statusText.innerText = "Processing...";
